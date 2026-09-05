@@ -1,0 +1,131 @@
+# Runs on every push and pull request to main.
+#
+# WHY THIS EXISTS
+# Debug and release are different builds of different code: release compiles
+# ahead-of-time, strips asserts, tree-shakes unused code, runs R8 shrinking and
+# uses a different Android manifest. A bug that only appears in release can sit
+# undetected for months while `flutter run` works perfectly every day.
+#
+# This workflow builds RELEASE on every commit, so that gap is minutes instead
+# of months, and the failure is attached to the commit that caused it.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push to the same branch cancels the previous run — no point finishing a
+# build for code that has already been replaced.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast feedback: static analysis and tests. Runs in ~2 minutes, so a broken
+  # commit is flagged before the slower build job has even finished setting up.
+  # ---------------------------------------------------------------------------
+  analyze:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned so CI cannot start failing because a new Flutter release
+          # changed something. Bump this deliberately, as its own commit.
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Fails the build if pubspec.yaml and pubspec.lock disagree. Catches the
+      # case where someone edits pubspec by hand and forgets to run pub get.
+      - name: Verify pubspec.lock is up to date
+        run: git diff --exit-code pubspec.lock
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      # Treat warnings as failures. Warnings are how release-only problems
+      # usually announce themselves first.
+      - name: Analyze
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Test
+        run: flutter test
+
+  # ---------------------------------------------------------------------------
+  # The job that catches what debug builds cannot. Slower, so it runs in
+  # parallel with the fast job rather than after it.
+  # ---------------------------------------------------------------------------
+  build-android:
+    name: Build Android release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # The real test. This is AOT compilation with tree-shaking and R8
+      # shrinking, using the release manifest — the exact path that breaks
+      # after months of green debug builds.
+      #
+      # NOTE: currently signed with debug keys (see android/app/build.gradle.kts).
+      # That is fine for verifying the build compiles, but the artifact cannot be
+      # uploaded to Play until a real signing config is added.
+      - name: Build release APK
+        run: flutter build apk --release
+
+      # An App Bundle is what Play actually accepts, and it exercises a slightly
+      # different packaging path than the APK. Cheap to also verify.
+      - name: Build release App Bundle
+        run: flutter build appbundle --release
+
+      # Keeps the built artifact for 14 days so you can install and check a
+      # release build by hand without building locally.
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # The web build uses a different renderer and different font/CORS behaviour
+  # from mobile, so it fails independently. Remove this job if web is not a
+  # target for this app.
+  # ---------------------------------------------------------------------------
+  build-web:
+    name: Build web release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build web
+        run: flutter build web --release
