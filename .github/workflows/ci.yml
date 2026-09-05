@@ -109,6 +109,35 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
+  # iOS cannot be built on Windows or Linux — it needs Xcode, which is macOS
+  # only. Since the team develops on Windows, this runner is the ONLY place the
+  # iOS build is ever exercised. Without it, the first time anyone discovers an
+  # iOS-specific problem is the day they try to ship to the App Store.
+  #
+  # --no-codesign builds the .app without signing. That verifies everything that
+  # actually breaks — Swift/ObjC compilation, CocoaPods resolution, plugin
+  # compatibility, deployment target conflicts — without needing Apple
+  # certificates in CI. It does NOT produce an installable .ipa; that requires
+  # signing (see docs/ios-release.md).
+  # ---------------------------------------------------------------------------
+  build-ios:
+    name: Build iOS release (unsigned)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign
+
+  # ---------------------------------------------------------------------------
   # The web build uses a different renderer and different font/CORS behaviour
   # from mobile, so it fails independently. Remove this job if web is not a
   # target for this app.
