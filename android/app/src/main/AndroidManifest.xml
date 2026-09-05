@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required in the MAIN manifest, not just the debug one. Flutter adds
+         INTERNET to android/app/src/debug only, so release builds have no
+         network access unless it is declared here. google_fonts downloads
+         Instrument Serif and Geist at runtime, and the API client will need
+         it too — without this, release builds silently fall back to system
+         fonts and every network call fails. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="saas_app"
         android:name="${applicationName}"
