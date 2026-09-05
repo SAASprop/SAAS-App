@@ -8,6 +8,7 @@ environment:
   sdk: ^3.13.2
 
 dependencies:
+  cupertino_icons: ^1.0.9  # icon font for framework Cupertino code paths; tree-shaken to ~1KB if unused
   flutter:
     sdk: flutter
 
